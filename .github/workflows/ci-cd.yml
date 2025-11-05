@@ -1,19 +1,13 @@
-name: CI/CD - Next.js Build & Deploy
+name: Local Test - CI/CD Next.js
 
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
-  schedule:
-    - cron: "0 6 * * *" # Daily 11:30 AM IST
 
 jobs:
-  build-and-deploy:
+  build-and-test-deploy:
     runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: ./  # adjust if Next.js app in subfolder
 
     steps:
       - name: 🛒 Checkout repository
@@ -47,39 +41,22 @@ jobs:
           echo "✅ Created archive:"
           ls -lh next-build.tar.gz
 
-      - name: 📁 List files for debug
-        run: ls -lh
-
-      - name: 🚀 Upload build artifact (for record)
+      - name: 🚀 Upload build artifact (for testing)
         uses: actions/upload-artifact@v4
         with:
           name: next-build
           path: next-build.tar.gz
 
-      # ==============================
-      # 🚀 DEPLOYMENT STEPS
-      # ==============================
-
-      - name: ⚙️ Install production dependencies
+      - name: 📦 Simulate "Deploy" locally
         run: |
-          cp package.json ./   # Ensure package.json exists for npm install
-          npm install --omit=dev
+          mkdir -p deploy_output
+          cp next-build.tar.gz deploy_output/
+          cd deploy_output
+          tar -xzf next-build.tar.gz
+          echo "✅ Simulated deployment complete:"
+          ls -la .next
 
-      - name: 📤 Deploy build via SSH
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          source: ".next/**"
-          target: "/var/www/next-app/.next/"
-
-      - name: 🔄 Restart Server with PM2
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            cd /var/www/next-app
-            pm2 restart next-app || pm2 start npm --name "next-app" -- run start
+      - name: ✅ Verify simulated deployment
+        run: |
+          echo "App deployed to local 'deploy_output' folder!"
+          ls -la deploy_output/.next
