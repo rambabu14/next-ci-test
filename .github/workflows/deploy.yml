@@ -2,7 +2,7 @@ name: CD - Deploy Next.js Build
 
 on:
   workflow_run:
-    workflows: ["CI - Next.js Build"] # 👈 must match your CI workflow name
+    workflows: ["CI - Next.js Build"] # must exactly match CI workflow name
     types:
       - completed
   workflow_dispatch: # allows manual trigger
@@ -19,15 +19,16 @@ jobs:
           name: next-build
           path: deploy_output
 
-      - name: 🧾 Verify extracted files
+      - name: 🧾 Extract artifact
         run: |
-          echo "📍 Current directory: $(pwd)"
-          ls -la deploy_output
+          cd deploy_output
+          tar -xzf next-build.tar.gz
+          echo "✅ Extracted files:"
+          ls -la
 
       - name: ⚙️ Install production dependencies
         run: |
-          cp package.json deploy_output/
-          cd deploy_output
+          cp ../package.json ./   # copy package.json for npm install
           npm install --omit=dev
 
       - name: 🚀 Deploy via SSH
