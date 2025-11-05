@@ -5,46 +5,38 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *" # daily at 11:30 AM IST
+    - cron: "0 6 * * *"
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: ./  # 👈 ensures all run commands use repo root
-
     steps:
-      # 1️⃣ Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Set up Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      # 3️⃣ Install dependencies
       - name: Install dependencies
         run: npm ci
 
-      # 4️⃣ Build Next.js app
       - name: Build Next.js app
         run: npm run build
 
-      # 5️⃣ Verify .next folder exists
-      - name: Verify .next directory
+      - name: Debug paths after build
         run: |
           echo "📍 Current directory: $(pwd)"
-          echo "📂 Listing .next contents..."
-          ls -la .next || echo "❌ .next not found!"
+          echo "📂 Listing folders:"
+          ls -la
+          echo "📂 Listing nested structure:"
+          ls -R | head -100
 
-      # 6️⃣ Upload .next folder (relative path now works)
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: next-build
-          path: .next
+          path: /home/runner/work/next-ci-test/next-ci-test/.next
           if-no-files-found: error
