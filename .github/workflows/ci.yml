@@ -1,4 +1,4 @@
-name: CI - Next.js Build & Simulated Deploy
+name: CI - Next.js Build
 
 on:
   push:
@@ -11,12 +11,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: ./  # 👈 ensures all run commands use repo root
+
     steps:
-      # 1️⃣ Checkout your code
+      # 1️⃣ Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Set up Node.js 20 (Next.js 14+ requires >=20.9)
+      # 2️⃣ Set up Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -30,26 +34,17 @@ jobs:
       - name: Build Next.js app
         run: npm run build
 
-      # 5️⃣ Verify .next folder exists and list contents
+      # 5️⃣ Verify .next folder exists
       - name: Verify .next directory
         run: |
           echo "📍 Current directory: $(pwd)"
-          echo "📂 Checking .next folder..."
-          ls -la .next || echo "❌ .next folder not found!"
+          echo "📂 Listing .next contents..."
+          ls -la .next || echo "❌ .next not found!"
 
-      # 6️⃣ Upload the build as an artifact (using absolute path)
+      # 6️⃣ Upload .next folder (relative path now works)
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: next-build
-          path: /home/runner/work/next-ci-test/next-ci-test/.next
+          path: .next
           if-no-files-found: error
-
-      # 7️⃣ Simulated Deploy (for local test, no server yet)
-      - name: Simulate Deploy (Local Test)
-        run: |
-          echo "🚀 Simulating deployment..."
-          mkdir -p ./deploy_output
-          cp -r .next ./deploy_output/
-          echo "✅ Build copied to ./deploy_output for testing"
-          ls -la ./deploy_output/.next
