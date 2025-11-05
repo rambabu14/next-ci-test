@@ -1,0 +1,85 @@
+name: CI/CD - Next.js Build & Deploy
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *" # Daily 11:30 AM IST
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./  # adjust if Next.js app in subfolder
+
+    steps:
+      - name: 🛒 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build Next.js app
+        run: npm run build
+
+      - name: 🔍 Verify build output
+        run: |
+          echo "📍 Current directory: $(pwd)"
+          if [ -d ".next" ]; then
+            echo "✅ .next directory exists:"
+            ls -la .next
+          else
+            echo "❌ .next directory not found!"
+            exit 1
+          fi
+
+      - name: 🗜️ Compress .next folder
+        run: |
+          tar -czf next-build.tar.gz .next
+          echo "✅ Created archive:"
+          ls -lh next-build.tar.gz
+
+      - name: 📁 List files for debug
+        run: ls -lh
+
+      - name: 🚀 Upload build artifact (for record)
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          path: next-build.tar.gz
+
+      # ==============================
+      # 🚀 DEPLOYMENT STEPS
+      # ==============================
+
+      - name: ⚙️ Install production dependencies
+        run: |
+          cp package.json ./   # Ensure package.json exists for npm install
+          npm install --omit=dev
+
+      - name: 📤 Deploy build via SSH
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: ".next/**"
+          target: "/var/www/next-app/.next/"
+
+      - name: 🔄 Restart Server with PM2
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /var/www/next-app
+            pm2 restart next-app || pm2 start npm --name "next-app" -- run start
