@@ -26,6 +26,11 @@ jobs:
       - name: Build Next.js app
         run: npm run build
 
+      - name: Verify build output
+        run: |
+          echo "📂 Listing .next directory..."
+          ls -la .next || echo ".next folder not found"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
