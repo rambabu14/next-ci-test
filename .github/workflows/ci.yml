@@ -1,41 +1,55 @@
-name: CI - Next.js Build
+name: CI - Next.js Build (Fixed Upload)
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *" # daily at 11:30 AM IST
+    - cron: "0 6 * * *" # Daily 11:30 AM IST
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: ./   # change if your Next.js project is inside a folder
+
     steps:
-      - name: Checkout repository
+      - name: 🛒 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: ⚙️ Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: 20
 
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         run: npm ci
 
-      - name: Build Next.js app
+      - name: 🏗️ Build Next.js app
         run: npm run build
 
-      - name: Debug paths after build
+      - name: 🔍 Verify build output
         run: |
           echo "📍 Current directory: $(pwd)"
-          ls -la
-          echo "📂 .next folder content:"
-          ls -R .next | head -50
+          if [ -d ".next" ]; then
+            echo "✅ .next directory exists:"
+            ls -la .next
+          else
+            echo "❌ .next directory not found!"
+            exit 1
+          fi
 
-      - name: Upload build artifact
+      - name: 🗜️ Compress .next folder
+        run: |
+          tar -czf next-build.tar.gz .next
+          echo "✅ Created archive:"
+          ls -lh next-build.tar.gz
+
+      - name: 🚀 Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: next-build
-          path: .next/**/*   # ✅ wildcard ensures all files are captured
+          path: next-build.tar.gz
           if-no-files-found: error
