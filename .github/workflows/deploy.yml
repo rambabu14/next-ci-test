@@ -2,10 +2,10 @@ name: CD - Deploy Next.js Build
 
 on:
   workflow_run:
-    workflows: ["CI - Next.js Build"] # must exactly match CI workflow name
+    workflows: ["CI - Next.js Build"] # Must exactly match CI workflow name
     types:
       - completed
-  workflow_dispatch: # allows manual trigger
+  workflow_dispatch: # Manual trigger allowed
 
 jobs:
   deploy:

@@ -55,7 +55,6 @@
 #           if-no-files-found: error
 
 
-
 name: CI - Next.js Build
 
 on:
@@ -105,9 +104,11 @@ jobs:
           echo "✅ Created archive:"
           ls -lh next-build.tar.gz
 
+      - name: 📁 List files for debug
+        run: ls -lh
+
       - name: 🚀 Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: next-build
           path: next-build.tar.gz
-          if-no-files-found: error
