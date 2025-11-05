@@ -5,7 +5,7 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "0 6 * * *" # daily at 11:30 AM IST
 
 jobs:
   build:
@@ -29,14 +29,13 @@ jobs:
       - name: Debug paths after build
         run: |
           echo "📍 Current directory: $(pwd)"
-          echo "📂 Listing folders:"
           ls -la
-          echo "📂 Listing nested structure:"
-          ls -R | head -100
+          echo "📂 .next folder content:"
+          ls -R .next | head -50
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: next-build
-          path: /home/runner/work/next-ci-test/next-ci-test/.next
+          path: .next/**/*   # ✅ wildcard ensures all files are captured
           if-no-files-found: error
