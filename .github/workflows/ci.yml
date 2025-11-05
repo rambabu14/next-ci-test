@@ -5,28 +5,33 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
   schedule:
-    - cron: '0 6 * * *' # runs daily at 11:30 AM IST (06:00 UTC)
+    - cron: "0 6 * * *"  # daily at 11:30 AM IST
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
+      # 👇 Change directory to your Next.js app
       - name: Install dependencies
+        working-directory: next-js/my-ci-test-app
         run: npm ci
 
-      - name: Build project
+      - name: Build Next.js app
+        working-directory: next-js/my-ci-test-app
         run: npm run build
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: next-build
-          path: .next
+          path: next-js/my-ci-test-app/.next
+          if-no-files-found: error
