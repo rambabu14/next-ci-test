@@ -5,7 +5,7 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"  # daily at 11:30 AM IST
+    - cron: "0 6 * * *" # daily at 11:30 AM IST
 
 jobs:
   build:
@@ -20,18 +20,15 @@ jobs:
         with:
           node-version: "20"
 
-      # 👇 Change directory to your Next.js app
       - name: Install dependencies
-        working-directory: next-js/my-ci-test-app
         run: npm ci
 
       - name: Build Next.js app
-        working-directory: next-js/my-ci-test-app
         run: npm run build
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: next-build
-          path: next-js/my-ci-test-app/.next
+          path: .next
           if-no-files-found: error
