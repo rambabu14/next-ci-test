@@ -2,27 +2,27 @@ name: CI - Next.js Build
 
 on:
   push:
-    branches: [ "main" ] # Run automatically when pushing to main
-  workflow_dispatch:       # Allow manual trigger from GitHub UI
+    branches: [ "main" ]
+  workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"    # Scheduled daily run (06:00 UTC = 11:30 AM IST)
+    - cron: '0 6 * * *' # runs daily at 11:30 AM IST (06:00 UTC)
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: '20'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Next.js app
+      - name: Build project
         run: npm run build
 
       - name: Upload build artifact
@@ -30,4 +30,3 @@ jobs:
         with:
           name: next-build
           path: .next
-          if-no-files-found: error
