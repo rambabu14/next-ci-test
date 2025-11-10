@@ -109,10 +109,11 @@ jobs:
           SERVER_USER: ${{ secrets.SERVER_USER }}
           SERVER_PASS: ${{ secrets.SERVER_PASS }}
         run: |
-          Write-Host "🔧 Enabling unencrypted WinRM traffic on this runner..."
+          Write-Host "🔧 Configuring WinRM client on GitHub runner..."
           winrm set winrm/config/client '@{AllowUnencrypted="true"}'
           winrm set winrm/config/client/auth '@{Basic="true"}'
-          Write-Host "✅ WinRM client configured."
+          winrm set winrm/config/client '@{TrustedHosts="*"}'
+          Write-Host "✅ WinRM client configured and TrustedHosts set."
 
           Write-Host "🔗 Connecting to $env:SERVER_HOST ..."
           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
