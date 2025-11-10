@@ -1,62 +1,113 @@
-name: Local Test - CI/CD Next.js
+# name: Local Test - CI/CD Next.js
+
+# on:
+#   push:
+#     branches: ["main"]
+#   workflow_dispatch:
+
+# jobs:
+#   build-and-test-deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: 🛒 Checkout repository
+#         uses: actions/checkout@v4
+
+#       - name: ⚙️ Set up Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: 20
+
+#       - name: 📦 Install dependencies
+#         run: npm ci
+
+#       - name: 🏗️ Build Next.js app
+#         run: npm run build
+
+#       - name: 🔍 Verify build output
+#         run: |
+#           echo "📍 Current directory: $(pwd)"
+#           if [ -d ".next" ]; then
+#             echo "✅ .next directory exists:"
+#             ls -la .next
+#           else
+#             echo "❌ .next directory not found!"
+#             exit 1
+#           fi
+
+#       - name: 🗜️ Compress .next folder
+#         run: |
+#           tar -czf next-build.tar.gz .next
+#           echo "✅ Created archive:"
+#           ls -lh next-build.tar.gz
+
+#       - name: 🚀 Upload build artifact (for testing)
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: next-build
+#           path: next-build.tar.gz
+
+#       - name: 📦 Simulate "Deploy" locally
+#         run: |
+#           mkdir -p deploy_output
+#           cp next-build.tar.gz deploy_output/
+#           cd deploy_output
+#           tar -xzf next-build.tar.gz
+#           echo "✅ Simulated deployment complete:"
+#           ls -la .next
+
+#       - name: ✅ Verify simulated deployment
+#         run: |
+#           echo "App deployed to local 'deploy_output' folder!"
+#           ls -la deploy_output/.next
+
+
+
+
+name: CI/CD - Next.js Auto Build & Windows Deploy
 
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
+  schedule:
+    - cron: "31 18 * * *" # 12:01 AM IST
 
 jobs:
-  build-and-test-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 🛒 Checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: ⚙️ Set up Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: 📦 Install dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: 🏗️ Build Next.js app
+      - name: Build Next.js app
         run: npm run build
 
-      - name: 🔍 Verify build output
-        run: |
-          echo "📍 Current directory: $(pwd)"
-          if [ -d ".next" ]; then
-            echo "✅ .next directory exists:"
-            ls -la .next
-          else
-            echo "❌ .next directory not found!"
-            exit 1
-          fi
+      - name: Create build archive
+        run: tar -czf next-build.tar.gz .next
 
-      - name: 🗜️ Compress .next folder
-        run: |
-          tar -czf next-build.tar.gz .next
-          echo "✅ Created archive:"
-          ls -lh next-build.tar.gz
-
-      - name: 🚀 Upload build artifact (for testing)
-        uses: actions/upload-artifact@v4
+      - name: Deploy to Windows Server via WinRM
+        uses: microsoft-devlabs/powershell@v0.3
         with:
-          name: next-build
-          path: next-build.tar.gz
-
-      - name: 📦 Simulate "Deploy" locally
-        run: |
-          mkdir -p deploy_output
-          cp next-build.tar.gz deploy_output/
-          cd deploy_output
-          tar -xzf next-build.tar.gz
-          echo "✅ Simulated deployment complete:"
-          ls -la .next
-
-      - name: ✅ Verify simulated deployment
-        run: |
-          echo "App deployed to local 'deploy_output' folder!"
-          ls -la deploy_output/.next
+          inlineScript: |
+            Write-Host "Connecting to Windows server..."
+            $session = New-PSSession -ConnectionUri http://${{ secrets.SERVER_HOST }}:5985 `
+              -Credential (New-Object PSCredential("${{ secrets.SERVER_USER }}", (ConvertTo-SecureString "${{ secrets.SERVER_PASS }}" -AsPlainText -Force))) `
+              -Authentication Basic
+            Copy-Item -Path next-build.tar.gz -Destination "C:\inetpub\wwwroot\next-app\" -ToSession $session
+            Invoke-Command -Session $session -ScriptBlock {
+              cd C:\inetpub\wwwroot\next-app
+              tar -xzf next-build.tar.gz
+              Remove-Item next-build.tar.gz
+              Write-Host "✅ Extracted successfully"
+            }
+            Remove-PSSession $session
