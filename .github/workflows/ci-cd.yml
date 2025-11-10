@@ -154,14 +154,12 @@
 
 
 
-name: CI/CD - Next.js Build & Windows Deploy
+name: CI/CD - Next.js Build & Windows Deploy (HTTP)
 
 on:
   push:
     branches: ["main"]
-  # Allows manual runs from the GitHub UI
   workflow_dispatch:
-  # Keeps the existing scheduled run
   schedule:
     - cron: "31 18 * * *" # 12:01 AM IST (18:31 UTC)
 
@@ -187,18 +185,15 @@ jobs:
         run: npm run build
         shell: powershell
 
-      - name: 🗜️ Create build archive (Include all necessary files for PM2)
+      - name: 🗜️ Create build archive
         run: |
           if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
-          # Archive the .next folder PLUS the package.json and node_modules (if needed, but typically cheaper to install on server)
-          # For Next.js Standalone/PM2, you usually need the full project structure.
-          # Assuming your deployment structure only needs .next, but adjust this if other files (like package.json) are needed for the PM2 start command.
           tar -czf next-build.tar.gz .next package.json
           Write-Host "✅ Build archived successfully."
         shell: powershell
 
       # ------------------ CD: DEPLOY ------------------
-      - name: 🚀 Deploy to Windows Server via Secure WinRM (Port 5986)
+      - name: 🚀 Deploy via WinRM HTTP (Port 5985)
         shell: pwsh
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
@@ -206,27 +201,21 @@ jobs:
           SERVER_PASS: ${{ secrets.SERVER_PASS }}
         run: |
           Write-Host "🔧 Configuring WinRM client on GitHub runner..."
-          # Set Basic Auth for user/pass credentials
           winrm set winrm/config/client/auth '@{Basic="true"}'
-          # Set TrustedHosts to allow connection to the server name/IP
           winrm set winrm/config/client '@{TrustedHosts="*"}'
-          Write-Host "✅ WinRM client configured and TrustedHosts set."
+          Write-Host "✅ WinRM client configured."
 
-          Write-Host "🔗 Connecting securely to $env:SERVER_HOST on Port 5986 (HTTPS)..."
-          
-          # 1. Define session options to skip SSL/Certificate checks (necessary for self-signed certificates)
-          $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck
+          Write-Host "🔗 Connecting to $env:SERVER_HOST on Port 5985 (HTTP)..."
 
-          
-          # 2. Create the PSCredential object
           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
           $creds = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
-          
-          # 3. Connect securely using Port 5986, -UseSSL, and the defined session options
-          $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5986 -Credential $creds -Authentication Basic -UseSSL -SessionOption $sessionOption
 
-          Write-Host "📦 Uploading build archive to remote server..."
-          Copy-Item -ToSession $session -Path "next-build.tar.gz" -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
+          $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
+            -Credential $creds -Authentication Basic -UseSSL:$false
+
+          Write-Host "📦 Uploading build..."
+          Copy-Item -ToSession $session -Path "next-build.tar.gz" `
+            -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
 
           Invoke-Command -Session $session -ScriptBlock {
             $deployPath = "C:\inetpub\wwwroot\next-app"
@@ -237,30 +226,21 @@ jobs:
 
             Set-Location $deployPath
             Write-Host "📂 Extracting build..."
-            
-            # Clean up old .next folder before extracting new one
             if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
-            # Clean up old package.json (if included in the tar)
             if (Test-Path "package.json") { Remove-Item package.json -Force }
-
             tar -xzf next-build.tar.gz
             Remove-Item next-build.tar.gz -Force
-            Write-Host "✅ Build extracted successfully."
-            
-            # Reinstall dependencies if they aren't included in the tar (best practice)
-            Write-Host "⚙️ Installing dependencies on remote server..."
+
+            Write-Host "⚙️ Installing dependencies..."
             npm install --production
 
-            Write-Host "🔄 Restarting Next.js app with PM2..."
-            # Check if PM2 process exists and restart, otherwise start new
+            Write-Host "🔄 Restarting app with PM2..."
             pm2 restart next-app -f -s 2>$null
             if ($LASTEXITCODE -ne 0) {
               Write-Host "App not found — starting a new PM2 process."
-              # Starts the app using the 'start' script defined in package.json
               pm2 start npm --name "next-app" -- run start
             }
 
-            # Log deployment timestamp
             $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             Add-Content "$deployPath\deploy-log.txt" "Deployed at $timestamp"
             Write-Host "🚀 Deployment completed and logged."
