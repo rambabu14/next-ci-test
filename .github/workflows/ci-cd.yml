@@ -63,8 +63,7 @@
 
 
 
-
-name: CI/CD - Next.js Auto Build & Windows Deploy
+name: CI/CD - Next.js Build & Deploy to Windows Server (12:01 AM IST)
 
 on:
   push:
@@ -78,36 +77,44 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: 🛒 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: ⚙️ Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         run: npm ci
 
-      - name: Build Next.js app
+      - name: 🏗️ Build Next.js app
         run: npm run build
 
-      - name: Create build archive
-        run: tar -czf next-build.tar.gz .next
+      - name: 🗜️ Create build archive
+        run: |
+          tar -czf next-build.tar.gz .next
+          echo "✅ Archive created:"
+          ls -lh next-build.tar.gz
 
-      - name: Deploy to Windows Server via WinRM
-        uses: microsoft-devlabs/powershell@v0.3
+      - name: 🌐 Deploy to Windows Server via WinRM
+        uses: appleboy/winrm-action@master
         with:
-          inlineScript: |
-            Write-Host "Connecting to Windows server..."
-            $session = New-PSSession -ConnectionUri http://${{ secrets.SERVER_HOST }}:5985 `
-              -Credential (New-Object PSCredential("${{ secrets.SERVER_USER }}", (ConvertTo-SecureString "${{ secrets.SERVER_PASS }}" -AsPlainText -Force))) `
-              -Authentication Basic
-            Copy-Item -Path next-build.tar.gz -Destination "C:\inetpub\wwwroot\next-app\" -ToSession $session
-            Invoke-Command -Session $session -ScriptBlock {
-              cd C:\inetpub\wwwroot\next-app
-              tar -xzf next-build.tar.gz
-              Remove-Item next-build.tar.gz
-              Write-Host "✅ Extracted successfully"
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASS }}
+          port: 5985
+          transport: http
+          script: |
+            Write-Host "Connected to Windows Server..."
+            if (!(Test-Path "C:\inetpub\wwwroot\next-app")) {
+              New-Item -ItemType Directory -Path "C:\inetpub\wwwroot\next-app"
             }
-            Remove-PSSession $session
+            Set-Location "C:\inetpub\wwwroot\next-app"
+            if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
+            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/latest/download/next-build.tar.gz" -OutFile "next-build.tar.gz"
+            tar -xzf next-build.tar.gz
+            Remove-Item next-build.tar.gz
+            Write-Host "✅ Build extracted successfully."
+            pm2 restart next-app -f -s || pm2 start npm --name "next-app" -- run start
+            Write-Host "🚀 Deployment finished!"
