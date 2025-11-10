@@ -63,20 +63,21 @@
 
 
 
-name: CI/CD - Next.js Build & Deploy to Windows Server (12:01 AM IST)
+name: CI/CD - Next.js Build & Windows Deploy (12:01 AM IST)
 
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
   schedule:
-    - cron: "31 18 * * *" # 12:01 AM IST
+    - cron: "31 18 * * *" # 🕐 12:01 AM IST (18:31 UTC previous day)
 
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
+      # ------------------ CI: BUILD ------------------
       - name: 🛒 Checkout repository
         uses: actions/checkout@v4
 
@@ -87,34 +88,58 @@ jobs:
 
       - name: 📦 Install dependencies
         run: npm ci
+        shell: powershell
 
       - name: 🏗️ Build Next.js app
         run: npm run build
+        shell: powershell
 
       - name: 🗜️ Create build archive
         run: |
+          if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
           tar -czf next-build.tar.gz .next
-          echo "✅ Archive created:"
-          ls -lh next-build.tar.gz
+          Write-Host "✅ Build archived successfully."
+        shell: powershell
 
-      - name: 🌐 Deploy to Windows Server via WinRM
-        uses: appleboy/winrm-action@master
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          password: ${{ secrets.SERVER_PASS }}
-          port: 5985
-          transport: http
-          script: |
-            Write-Host "Connected to Windows Server..."
+      # ------------------ CD: DEPLOY ------------------
+      - name: 🚀 Deploy to Windows Server via WinRM
+        shell: pwsh
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PASS: ${{ secrets.SERVER_PASS }}
+        run: |
+          Write-Host "🔗 Connecting to $env:SERVER_HOST ..."
+          $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
+          $creds = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
+          $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 -Credential $creds -Authentication Basic -UseSSL:$false
+
+          Write-Host "📦 Uploading build to remote server..."
+          Copy-Item -ToSession $session -Path "next-build.tar.gz" -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
+
+          Invoke-Command -Session $session -ScriptBlock {
+            Write-Host "🔧 Preparing deploy folder..."
             if (!(Test-Path "C:\inetpub\wwwroot\next-app")) {
-              New-Item -ItemType Directory -Path "C:\inetpub\wwwroot\next-app"
+              New-Item -ItemType Directory -Path "C:\inetpub\wwwroot\next-app" | Out-Null
             }
+
             Set-Location "C:\inetpub\wwwroot\next-app"
-            if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
-            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/latest/download/next-build.tar.gz" -OutFile "next-build.tar.gz"
+            Write-Host "📂 Extracting build..."
             tar -xzf next-build.tar.gz
-            Remove-Item next-build.tar.gz
+            Remove-Item next-build.tar.gz -Force
             Write-Host "✅ Build extracted successfully."
-            pm2 restart next-app -f -s || pm2 start npm --name "next-app" -- run start
-            Write-Host "🚀 Deployment finished!"
+
+            Write-Host "🔄 Restarting Next.js app with PM2..."
+            pm2 restart next-app -f -s 2>$null
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "App not found — starting a new PM2 process."
+              pm2 start npm --name "next-app" -- run start
+            }
+
+            # Log deploy
+            $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            Add-Content "C:\inetpub\wwwroot\next-app\deploy-log.txt" "Deployed at $timestamp"
+            Write-Host "🚀 Deployment completed and logged."
+          }
+
+          Remove-PSSession $session
