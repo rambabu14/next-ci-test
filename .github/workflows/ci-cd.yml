@@ -217,8 +217,19 @@ jobs:
           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
           $creds = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
 
-          $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
-            -Credential $creds -Authentication Basic -UseSSL:$false
+          $maxAttempts = 5
+          for ($i = 1; $i -le $maxAttempts; $i++) {
+          try {
+           $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
+            -Credential $creds -Authentication Basic -UseSSL:$false -ErrorAction Stop
+           Write-Host "✅ Connected successfully on attempt $i"
+           break
+          } catch {
+          Write-Host "⚠️ Connection attempt $i failed. Retrying in 5 seconds..."
+          Start-Sleep -Seconds 5
+          if ($i -eq $maxAttempts) { throw "❌ Failed to connect after $maxAttempts attempts." }
+           }
+          }
 
           Write-Host "📦 Uploading build..."
           Copy-Item -ToSession $session -Path "next-build.tar.gz" `
