@@ -70,7 +70,7 @@ on:
     branches: ["main"]
   workflow_dispatch:
   schedule:
-    - cron: "31 18 * * *" # 🕐 12:01 AM IST (18:31 UTC previous day)
+    - cron: "31 18 * * *" # 12:01 AM IST (18:31 UTC)
 
 jobs:
   build-and-deploy:
@@ -109,6 +109,11 @@ jobs:
           SERVER_USER: ${{ secrets.SERVER_USER }}
           SERVER_PASS: ${{ secrets.SERVER_PASS }}
         run: |
+          Write-Host "🔧 Enabling unencrypted WinRM traffic on this runner..."
+          winrm set winrm/config/client '@{AllowUnencrypted="true"}'
+          winrm set winrm/config/client/auth '@{Basic="true"}'
+          Write-Host "✅ WinRM client configured."
+
           Write-Host "🔗 Connecting to $env:SERVER_HOST ..."
           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
           $creds = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
@@ -136,7 +141,7 @@ jobs:
               pm2 start npm --name "next-app" -- run start
             }
 
-            # Log deploy
+            # Log deployment timestamp
             $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             Add-Content "C:\inetpub\wwwroot\next-app\deploy-log.txt" "Deployed at $timestamp"
             Write-Host "🚀 Deployment completed and logged."
