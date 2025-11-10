@@ -192,7 +192,7 @@ jobs:
           Write-Host "✅ Build archived successfully."
         shell: powershell
 
-      # ------------------ CD: DEPLOY ------------------
+       # ------------------ CD: DEPLOY ------------------
       - name: 🚀 Deploy via WinRM HTTP (Port 5985)
         shell: pwsh
         env:
@@ -200,9 +200,16 @@ jobs:
           SERVER_USER: ${{ secrets.SERVER_USER }}
           SERVER_PASS: ${{ secrets.SERVER_PASS }}
         run: |
+          
           Write-Host "🔧 Configuring WinRM client on GitHub runner..."
+          # Set Basic Auth
           winrm set winrm/config/client/auth '@{Basic="true"}'
+          # Set TrustedHosts
           winrm set winrm/config/client '@{TrustedHosts="*"}'
+          
+          # 🚨 CRITICAL FIX: Explicitly allow unencrypted traffic on the client 🚨
+          winrm set winrm/config/client '@{AllowUnencrypted="true"}'
+          
           Write-Host "✅ WinRM client configured."
 
           Write-Host "🔗 Connecting to $env:SERVER_HOST on Port 5985 (HTTP)..."
