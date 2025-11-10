@@ -215,7 +215,8 @@ jobs:
           Write-Host "🔗 Connecting securely to $env:SERVER_HOST on Port 5986 (HTTPS)..."
           
           # 1. Define session options to skip SSL/Certificate checks (necessary for self-signed certificates)
-          $sessionOption = New-PSSessionOption -SkipCertificateCheck -SkipCNCheck
+          $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck
+
           
           # 2. Create the PSCredential object
           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
