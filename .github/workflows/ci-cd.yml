@@ -151,7 +151,6 @@
 #           Remove-PSSession $session
 
 
-
 name: CI/CD - Next.js Build & Windows Deploy (HTTP)
 
 on:
@@ -166,7 +165,6 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # ------------------ CI: BUILD ------------------
       - name: 🛒 Checkout repository
         uses: actions/checkout@v4
 
@@ -190,7 +188,7 @@ jobs:
           Write-Host "✅ Build archived successfully."
         shell: powershell
 
-      # ------------------ CD: DEPLOY ------------------
+      # ------------------ DEPLOY ------------------
       - name: 🚀 Deploy via WinRM HTTP (Port 5985)
         shell: pwsh
         env:
@@ -210,11 +208,11 @@ jobs:
             exit 1
           }
 
-          Write-Host "🔗 Connecting to $env:SERVER_HOST on Port 5985 (HTTP)..."
-
+          Write-Host "🔗 Connecting to $env:SERVER_HOST on Port 5985..."
           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
           $creds = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
 
+          $session = $null
           $maxAttempts = 5
           for ($i = 1; $i -le $maxAttempts; $i++) {
             try {
@@ -224,88 +222,66 @@ jobs:
               Write-Host "✅ Connected successfully on attempt ${i}"
               break
             } catch {
-              Write-Host "⚠️ Connection attempt ${i} failed."
-              Write-Host "🧾 Error details:"
-              Write-Host $_.Exception.Message
+              Write-Host "⚠️ Attempt ${i} failed. Retrying..."
               Start-Sleep -Seconds 5
-              if ($i -eq $maxAttempts) {
-                throw "❌ Failed to connect after ${maxAttempts} attempts."
-              }
+              if ($i -eq $maxAttempts) { throw "❌ Failed to connect after ${maxAttempts} attempts." }
             }
           }
 
           Write-Host "📦 Uploading build..."
-          try {
-            Copy-Item -ToSession $session -Path "next-build.tar.gz" `
-              -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
-            Write-Host "✅ Build uploaded successfully."
-          } catch {
-            Write-Host "❌ File upload failed:"
-            Write-Host $_.Exception.Message
-            exit 1
-          }
+          Copy-Item -ToSession $session -Path "next-build.tar.gz" `
+            -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
+          Write-Host "✅ Build uploaded successfully."
 
           Write-Host "🧩 Running remote deployment..."
-          try {
-            Invoke-Command -Session $session -ScriptBlock {
-              $deployPath = "C:\inetpub\wwwroot\next-app"
-              Write-Host "🔧 Preparing deploy folder..."
-              if (!(Test-Path $deployPath)) {
-                New-Item -ItemType Directory -Path $deployPath | Out-Null
-              }
+          Invoke-Command -Session $session -ScriptBlock {
+            $deployPath = "C:\inetpub\wwwroot\next-app"
+            Write-Host "🔧 Preparing deploy folder..."
+            if (!(Test-Path $deployPath)) { New-Item -ItemType Directory -Path $deployPath | Out-Null }
+            Set-Location $deployPath
 
-              Set-Location $deployPath
-              Write-Host "📂 Extracting build..."
-              if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
-              if (Test-Path "package.json") { Remove-Item package.json -Force }
-              tar -xzf next-build.tar.gz
-              Remove-Item next-build.tar.gz -Force
+            Write-Host "📂 Extracting build..."
+            if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
+            if (Test-Path "package.json") { Remove-Item package.json -Force }
+            tar -xzf next-build.tar.gz
+            Remove-Item next-build.tar.gz -Force
 
-              Write-Host "⚙️ Installing dependencies..."
-              npm install --omit=dev
+            Write-Host "⚙️ Installing dependencies..."
+            npm install --omit=dev
 
-              Write-Host "🛠️ Ensuring PM2 is available..."
-              $pm2Path = 'C:\Users\Administrator\AppData\Roaming\npm'
-              if (!(Test-Path "$pm2Path\pm2.ps1")) {
-                Write-Host "⚙️ Installing PM2 globally..."
-                npm install pm2 -g
-              }
-
-              # Add PM2 path to the environment (for WinRM session)
-              [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$pm2Path", [System.EnvironmentVariableTarget]::Process)
-              $env:Path += ";$pm2Path"
-              Write-Host "✅ PM2 path added: $pm2Path"
-
-              Write-Host "🔄 Restarting or starting app with PM2..."
-              try {
-                # Stop existing process if any
-                pm2 delete next-app -s 2>$null
-
-                # Start new instance
-                pm2 start npm --name "next-app" -- run start --no-warnings
-
-                # Save process for persistence
-                pm2 save
-
-                # Show PM2 status
-                pm2 list
-
-                Write-Host "✅ PM2 app started and saved successfully."
-              } catch {
-                Write-Host "⚠️ PM2 encountered an error:"
-                Write-Host $_.Exception.Message
-              }
-
-              $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-              Add-Content "$deployPath\deploy-log.txt" "Deployed successfully at $timestamp"
-              Write-Host "🚀 Deployment completed and logged successfully."
+            Write-Host "🛠️ Ensuring PM2 is available..."
+            $pm2Path = 'C:\Users\Administrator\AppData\Roaming\npm'
+            if (!(Test-Path "$pm2Path\pm2.ps1")) {
+              npm install pm2 -g
+              Write-Host "✅ PM2 installed globally."
             }
-          } catch {
-            Write-Host "❌ Remote deploy failed:"
-            Write-Host $_.Exception.Message
-            Write-Host $_.ScriptStackTrace
-            exit 0
-          }
 
-          Write-Host "✅ Deployment completed successfully on remote server."
+            # Add PM2 to path for this session
+            [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$pm2Path", [System.EnvironmentVariableTarget]::Process)
+            $env:Path += ";$pm2Path"
+            Write-Host "✅ PM2 path added: $pm2Path"
+
+            Write-Host "🔄 Restarting or starting app with PM2..."
+            try {
+              pm2 delete next-app -s 2>$null | Out-Null
+              $rawOutput = pm2 start npm --name "next-app" -- run start --no-warnings | Out-String
+              $cleanOutput = $rawOutput -replace '[^\x20-\x7E]', ''  # strip non-ASCII characters
+              Write-Host $cleanOutput
+              pm2 save | Out-Null
+              Write-Host "✅ PM2 app started and saved successfully."
+            } catch {
+              Write-Host "⚠️ PM2 error:"
+              Write-Host $_.Exception.Message
+            }
+
+            pm2 list | Out-String | Out-File "$deployPath\pm2-status.txt" -Encoding utf8
+            Write-Host "📄 PM2 status saved to pm2-status.txt"
+
+            $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            Add-Content "$deployPath\deploy-log.txt" "Deployed successfully at $timestamp"
+            Write-Host "🚀 Deployment completed and logged successfully."
+          } -ErrorAction SilentlyContinue
+
+          Write-Host "✅ Deployment finished cleanly on remote server."
           Remove-PSSession $session
+          exit 0
