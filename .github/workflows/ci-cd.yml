@@ -220,25 +220,26 @@ jobs:
 
           $maxAttempts = 5
           for ($i = 1; $i -le $maxAttempts; $i++) {
-            try {
-              Write-Host "🧠 Attempt $i: Trying to create PSSession..."
-              $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
-                -Credential $creds -Authentication Basic -UseSSL:$false -ErrorAction Stop
+          try {
+            Write-Host "🧠 Attempt ${i}: Trying to create PSSession..."
+            $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
+            -Credential $creds -Authentication Basic -UseSSL:$false -ErrorAction Stop
 
-              Write-Host "✅ Connected successfully on attempt $i"
-              break
-            } catch {
-              Write-Host "⚠️ Connection attempt $i failed."
-              Write-Host "🧾 Error details:"
-              Write-Host $_.Exception.Message
-              Write-Host $_.ScriptStackTrace
-              Write-Host "💡 Hints: Check WinRM service (winrm quickconfig) and firewall for port 5985"
-              Start-Sleep -Seconds 5
-              if ($i -eq $maxAttempts) {
-                throw "❌ Failed to connect after $maxAttempts attempts."
-              }
+          Write-Host "✅ Connected successfully on attempt ${i}"
+            break
+          } catch {
+           Write-Host "⚠️ Connection attempt ${i} failed."
+           Write-Host "🧾 Error details:"
+           Write-Host $_.Exception.Message
+           Write-Host $_.ScriptStackTrace
+           Write-Host "💡 Hints: Check WinRM service (winrm quickconfig) and firewall for port 5985"
+          Start-Sleep -Seconds 5
+          if ($i -eq $maxAttempts) {
+            throw "❌ Failed to connect after ${maxAttempts} attempts."
             }
+           }
           }
+
 
           Write-Host "📦 Uploading build..."
           try {
