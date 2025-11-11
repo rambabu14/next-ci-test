@@ -193,24 +193,25 @@ jobs:
         shell: powershell
 
        # ------------------ CD: DEPLOY ------------------
-      - name: 🚀 Deploy via WinRM HTTP (Port 5985)
+      - name: 🚀 Deploy via WinRM HTTP (Port 5985) 
         shell: pwsh
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
           SERVER_PASS: ${{ secrets.SERVER_PASS }}
         run: |
-          
           Write-Host "🔧 Configuring WinRM client on GitHub runner..."
-          # Set Basic Auth
-          winrm set winrm/config/client/auth '@{Basic="true"}'
-          # Set TrustedHosts
-          winrm set winrm/config/client '@{TrustedHosts="*"}'
-          
-          # 🚨 CRITICAL FIX: Explicitly allow unencrypted traffic on the client 🚨
-          winrm set winrm/config/client '@{AllowUnencrypted="true"}'
-          
-          Write-Host "✅ WinRM client configured."
+          try {
+            winrm set winrm/config/client/auth '@{Basic="true"}'
+            winrm set winrm/config/client '@{TrustedHosts="*"}'
+            winrm set winrm/config/client '@{AllowUnencrypted="true"}'
+            Write-Host "✅ WinRM client configured."
+          } catch {
+            Write-Host "❌ Failed configuring WinRM client:"
+            Write-Host $_.Exception.Message
+            Write-Host $_.ScriptStackTrace
+            exit 1
+          }
 
           Write-Host "🔗 Connecting to $env:SERVER_HOST on Port 5985 (HTTP)..."
 
@@ -219,49 +220,73 @@ jobs:
 
           $maxAttempts = 5
           for ($i = 1; $i -le $maxAttempts; $i++) {
-          try {
-           $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
-            -Credential $creds -Authentication Basic -UseSSL:$false -ErrorAction Stop
-           Write-Host "✅ Connected successfully on attempt $i"
-           break
-          } catch {
-          Write-Host "⚠️ Connection attempt $i failed. Retrying in 5 seconds..."
-          Start-Sleep -Seconds 5
-          if ($i -eq $maxAttempts) { throw "❌ Failed to connect after $maxAttempts attempts." }
-           }
+            try {
+              Write-Host "🧠 Attempt $i: Trying to create PSSession..."
+              $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
+                -Credential $creds -Authentication Basic -UseSSL:$false -ErrorAction Stop
+
+              Write-Host "✅ Connected successfully on attempt $i"
+              break
+            } catch {
+              Write-Host "⚠️ Connection attempt $i failed."
+              Write-Host "🧾 Error details:"
+              Write-Host $_.Exception.Message
+              Write-Host $_.ScriptStackTrace
+              Write-Host "💡 Hints: Check WinRM service (winrm quickconfig) and firewall for port 5985"
+              Start-Sleep -Seconds 5
+              if ($i -eq $maxAttempts) {
+                throw "❌ Failed to connect after $maxAttempts attempts."
+              }
+            }
           }
 
           Write-Host "📦 Uploading build..."
-          Copy-Item -ToSession $session -Path "next-build.tar.gz" `
-            -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
+          try {
+            Copy-Item -ToSession $session -Path "next-build.tar.gz" `
+              -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
+            Write-Host "✅ Build uploaded successfully."
+          } catch {
+            Write-Host "❌ File upload failed:"
+            Write-Host $_.Exception.Message
+            Write-Host $_.ScriptStackTrace
+            exit 1
+          }
 
-          Invoke-Command -Session $session -ScriptBlock {
-            $deployPath = "C:\inetpub\wwwroot\next-app"
-            Write-Host "🔧 Preparing deploy folder..."
-            if (!(Test-Path $deployPath)) {
-              New-Item -ItemType Directory -Path $deployPath | Out-Null
+          Write-Host "🧩 Running remote deployment..."
+          try {
+            Invoke-Command -Session $session -ScriptBlock {
+              $deployPath = "C:\inetpub\wwwroot\next-app"
+              Write-Host "🔧 Preparing deploy folder..."
+              if (!(Test-Path $deployPath)) {
+                New-Item -ItemType Directory -Path $deployPath | Out-Null
+              }
+
+              Set-Location $deployPath
+              Write-Host "📂 Extracting build..."
+              if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
+              if (Test-Path "package.json") { Remove-Item package.json -Force }
+              tar -xzf next-build.tar.gz
+              Remove-Item next-build.tar.gz -Force
+
+              Write-Host "⚙️ Installing dependencies..."
+              npm install --production
+
+              Write-Host "🔄 Restarting app with PM2..."
+              pm2 restart next-app -f -s 2>$null
+              if ($LASTEXITCODE -ne 0) {
+                Write-Host "App not found — starting new PM2 process."
+                pm2 start npm --name "next-app" -- run start
+              }
+
+              $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+              Add-Content "$deployPath\deploy-log.txt" "Deployed at $timestamp"
+              Write-Host "🚀 Deployment completed and logged."
             }
-
-            Set-Location $deployPath
-            Write-Host "📂 Extracting build..."
-            if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
-            if (Test-Path "package.json") { Remove-Item package.json -Force }
-            tar -xzf next-build.tar.gz
-            Remove-Item next-build.tar.gz -Force
-
-            Write-Host "⚙️ Installing dependencies..."
-            npm install --production
-
-            Write-Host "🔄 Restarting app with PM2..."
-            pm2 restart next-app -f -s 2>$null
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "App not found — starting a new PM2 process."
-              pm2 start npm --name "next-app" -- run start
-            }
-
-            $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-            Add-Content "$deployPath\deploy-log.txt" "Deployed at $timestamp"
-            Write-Host "🚀 Deployment completed and logged."
+          } catch {
+            Write-Host "❌ Remote deploy failed:"
+            Write-Host $_.Exception.Message
+            Write-Host $_.ScriptStackTrace
+            exit 1
           }
 
           Remove-PSSession $session
