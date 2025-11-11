@@ -152,7 +152,6 @@
 
 
 
-
 name: CI/CD - Next.js Build & Windows Deploy (HTTP)
 
 on:
@@ -265,20 +264,38 @@ jobs:
               Write-Host "⚙️ Installing dependencies..."
               npm install --omit=dev
 
-              Write-Host "🔄 Restarting app with PM2..."
-              # Stop old instance if any
-              pm2 delete next-app -s 2>$null
+              Write-Host "🛠️ Ensuring PM2 is available..."
+              $pm2Path = 'C:\Users\Administrator\AppData\Roaming\npm'
+              if (!(Test-Path "$pm2Path\pm2.ps1")) {
+                Write-Host "⚙️ Installing PM2 globally..."
+                npm install pm2 -g
+              }
 
-              # Start new instance cleanly
-              pm2 start npm --name "next-app" -- run start --no-warnings
+              # Add PM2 path to the environment (for WinRM session)
+              [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$pm2Path", [System.EnvironmentVariableTarget]::Process)
+              $env:Path += ";$pm2Path"
+              Write-Host "✅ PM2 path added: $pm2Path"
 
-              # Save PM2 list for persistence
-              pm2 save
+              Write-Host "🔄 Restarting or starting app with PM2..."
+              try {
+                # Stop existing process if any
+                pm2 delete next-app -s 2>$null
 
-              # Display current PM2 apps
-              pm2 list
+                # Start new instance
+                pm2 start npm --name "next-app" -- run start --no-warnings
 
-              Write-Host "✅ PM2 process started and saved."
+                # Save process for persistence
+                pm2 save
+
+                # Show PM2 status
+                pm2 list
+
+                Write-Host "✅ PM2 app started and saved successfully."
+              } catch {
+                Write-Host "⚠️ PM2 encountered an error:"
+                Write-Host $_.Exception.Message
+              }
+
               $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
               Add-Content "$deployPath\deploy-log.txt" "Deployed successfully at $timestamp"
               Write-Host "🚀 Deployment completed and logged successfully."
@@ -287,7 +304,6 @@ jobs:
             Write-Host "❌ Remote deploy failed:"
             Write-Host $_.Exception.Message
             Write-Host $_.ScriptStackTrace
-            # Don't fail workflow on harmless npm warnings
             exit 0
           }
 
