@@ -434,21 +434,19 @@
 #           exit 0
 
 
-
-name: CI/CD - Next.js Build & Windows Deploy
+name: CI/CD - Next.js Build & Windows Deploy (Multi-Server Stable)
 
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
   schedule:
-    - cron: "31 18 * * *"
+    - cron: "31 18 * * *" # 12:01 AM IST (18:31 UTC)
 
 jobs:
   build-and-deploy:
     runs-on: windows-latest
 
-    # Define server labels only — not secrets here
     strategy:
       matrix:
         include:
@@ -474,7 +472,10 @@ jobs:
         shell: powershell
 
       - name: 🏗️ Build Next.js
-        run: npm run build
+        run: |
+          Write-Host "🏗️ Building Next.js app..."
+          npx next telemetry disable
+          npm run build
         shell: powershell
 
       - name: 🗜️ Create build archive (safe with optional files)
@@ -482,7 +483,6 @@ jobs:
           Write-Host "🗜️ Creating build archive safely..."
           if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
 
-          # Check mandatory items
           if (-not (Test-Path ".next")) {
             Write-Host "❌ Error: .next folder not found. Build may have failed."
             exit 1
@@ -492,7 +492,6 @@ jobs:
             exit 1
           }
 
-          # Optional items (include only if they exist)
           $tarItems = @(".next", "package.json")
           if (Test-Path "public") { $tarItems += "public" }
           if (Test-Path "next.config.js") { $tarItems += "next.config.js" }
@@ -513,7 +512,7 @@ jobs:
           SERVER2_USER: ${{ secrets.SERVER2_USER }}
           SERVER2_PASS: ${{ secrets.SERVER2_PASS }}
         run: |
-          # 🧩 Pick the right server credentials dynamically
+          # 🧩 Pick correct server credentials dynamically
           switch ("${{ matrix.server }}") {
             "SERVER1" {
               $env:SERVER_HOST = "${{ secrets.SERVER1_HOST }}"
@@ -532,30 +531,36 @@ jobs:
             winrm set winrm/config/client/auth '@{Basic="true"}'
             winrm set winrm/config/client '@{TrustedHosts="*"}'
             winrm set winrm/config/client '@{AllowUnencrypted="true"}'
-          } catch { Write-Host "❌ Failed configuring WinRM client: $($_.Exception.Message)"; exit 1 }
+            Write-Host "✅ WinRM client configured successfully."
+          } catch {
+            Write-Host "❌ Failed configuring WinRM client: $($_.Exception.Message)"
+            exit 1
+          }
 
-          Write-Host "🔗 Connecting to $env:SERVER_HOST ..."
+          Write-Host "🔗 Connecting to $env:SERVER_HOST..."
           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
           $creds = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
 
           $session = $null
-          for ($i = 1; $i -le 5; $i++) {
+          $maxAttempts = 5
+          for ($i = 1; $i -le $maxAttempts; $i++) {
             try {
-              Write-Host "🧠 Attempt $i: Creating PSSession..."
+              Write-Host "🧠 Attempt ${i}: Creating PSSession..."
               $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
                 -Credential $creds -Authentication Basic -UseSSL:$false -ErrorAction Stop
               Write-Host "✅ Connected successfully."
               break
             } catch {
-              Write-Host "⚠️ Connection failed ($i): $($_.Exception.Message)"
+              Write-Host "⚠️ Connection failed (${i}): $($_.Exception.Message)"
               Start-Sleep -Seconds 5
-              if ($i -eq 5) { throw "❌ Failed after 5 attempts." }
+              if ($i -eq $maxAttempts) { throw "❌ Failed after ${maxAttempts} attempts." }
             }
           }
 
           Write-Host "📦 Uploading build..."
           Copy-Item -ToSession $session -Path "next-build.tar.gz" `
             -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
+          Write-Host "✅ Build uploaded successfully."
 
           Write-Host "🧩 Deploying on $env:SERVER_HOST..."
           Invoke-Command -Session $session -ScriptBlock {
@@ -611,7 +616,7 @@ jobs:
             pm2 save | Out-Null
             pm2 list | Out-String | Out-File "$deployPath\pm2-status.txt" -Encoding utf8
             Add-Content "$deployPath\deploy-log.txt" "Deployed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-            Write-Host "✅ Deployment finished."
+            Write-Host "✅ Deployment finished successfully."
           }
 
           Remove-PSSession $session
