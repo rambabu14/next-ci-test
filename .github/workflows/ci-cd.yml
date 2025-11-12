@@ -435,39 +435,36 @@
 
 
 
-name: CI/CD - Next.js Build & Windows Deploy (HTTP, Multi-Server Safe Same-Folder + 1-Day Backup)
+name: CI/CD - Next.js Build & Windows Deploy
 
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
   schedule:
-    - cron: "31 18 * * *" # 12:01 AM IST (18:31 UTC)
+    - cron: "31 18 * * *"
 
 jobs:
   build-and-deploy:
     runs-on: windows-latest
 
+    # Define server labels only — not secrets here
     strategy:
       matrix:
         include:
           - name: server1
-            host: ${{ secrets.SERVER1_HOST }}
-            user: ${{ secrets.SERVER1_USER }}
-            pass: ${{ secrets.SERVER1_PASS }}
+            server: SERVER1
           - name: server2
-            host: ${{ secrets.SERVER2_HOST }}
-            user: ${{ secrets.SERVER2_USER }}
-            pass: ${{ secrets.SERVER2_PASS }}
+            server: SERVER2
 
     name: Deploy to ${{ matrix.name }}
 
     steps:
-      # ------------------ CI: BUILD ------------------
+      # ---------------- CI ----------------
       - name: 🛒 Checkout repository
         uses: actions/checkout@v4
 
-      - name: ⚙️ Set up Node.js
+      - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -476,7 +473,7 @@ jobs:
         run: npm ci
         shell: powershell
 
-      - name: 🏗️ Build Next.js app
+      - name: 🏗️ Build Next.js
         run: npm run build
         shell: powershell
 
@@ -488,66 +485,74 @@ jobs:
           Write-Host "✅ Build archived successfully with /public."
         shell: powershell
 
-      # ------------------ CD: DEPLOY ------------------
-      - name: 🚀 Deploy to ${{ matrix.name }} via WinRM HTTP
+      # ---------------- CD ----------------
+      - name: 🚀 Deploy via WinRM HTTP
         shell: pwsh
         env:
-          SERVER_HOST: ${{ matrix.host }}
-          SERVER_USER: ${{ matrix.user }}
-          SERVER_PASS: ${{ matrix.pass }}
+          SERVER1_HOST: ${{ secrets.SERVER1_HOST }}
+          SERVER1_USER: ${{ secrets.SERVER1_USER }}
+          SERVER1_PASS: ${{ secrets.SERVER1_PASS }}
+          SERVER2_HOST: ${{ secrets.SERVER2_HOST }}
+          SERVER2_USER: ${{ secrets.SERVER2_USER }}
+          SERVER2_PASS: ${{ secrets.SERVER2_PASS }}
         run: |
+          # 🧩 Pick the right server credentials dynamically
+          switch ("${{ matrix.server }}") {
+            "SERVER1" {
+              $env:SERVER_HOST = "${{ secrets.SERVER1_HOST }}"
+              $env:SERVER_USER = "${{ secrets.SERVER1_USER }}"
+              $env:SERVER_PASS = "${{ secrets.SERVER1_PASS }}"
+            }
+            "SERVER2" {
+              $env:SERVER_HOST = "${{ secrets.SERVER2_HOST }}"
+              $env:SERVER_USER = "${{ secrets.SERVER2_USER }}"
+              $env:SERVER_PASS = "${{ secrets.SERVER2_PASS }}"
+            }
+          }
+
           Write-Host "🔧 Configuring WinRM client..."
           try {
             winrm set winrm/config/client/auth '@{Basic="true"}'
             winrm set winrm/config/client '@{TrustedHosts="*"}'
             winrm set winrm/config/client '@{AllowUnencrypted="true"}'
-            Write-Host "✅ WinRM client configured."
-          } catch {
-            Write-Host "❌ Failed configuring WinRM client:"; Write-Host $_.Exception.Message; exit 1
-          }
+          } catch { Write-Host "❌ Failed configuring WinRM client: $($_.Exception.Message)"; exit 1 }
 
           Write-Host "🔗 Connecting to $env:SERVER_HOST ..."
           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
           $creds = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
 
           $session = $null
-          $maxAttempts = 5
-          for ($i = 1; $i -le $maxAttempts; $i++) {
+          for ($i = 1; $i -le 5; $i++) {
             try {
-              Write-Host "🧠 Attempt ${i}: Trying to create PSSession..."
+              Write-Host "🧠 Attempt $i: Creating PSSession..."
               $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
                 -Credential $creds -Authentication Basic -UseSSL:$false -ErrorAction Stop
-              Write-Host "✅ Connected successfully on attempt ${i}"
+              Write-Host "✅ Connected successfully."
               break
             } catch {
-              Write-Host "⚠️ Attempt ${i} failed: $($_.Exception.Message)"
+              Write-Host "⚠️ Connection failed ($i): $($_.Exception.Message)"
               Start-Sleep -Seconds 5
-              if ($i -eq $maxAttempts) { throw "❌ Failed after ${maxAttempts} attempts." }
+              if ($i -eq 5) { throw "❌ Failed after 5 attempts." }
             }
           }
 
-          Write-Host "📦 Uploading build to $env:SERVER_HOST..."
+          Write-Host "📦 Uploading build..."
           Copy-Item -ToSession $session -Path "next-build.tar.gz" `
             -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
 
-          Write-Host "🧩 Running remote deployment on $env:SERVER_HOST..."
+          Write-Host "🧩 Deploying on $env:SERVER_HOST..."
           Invoke-Command -Session $session -ScriptBlock {
             $deployPath = "C:\inetpub\wwwroot\next-app"
             $backupPath = "$deployPath\backup_latest"
+            Set-Location $deployPath
 
-            Write-Host "📦 Creating fresh backup of current build..."
-            if (Test-Path $backupPath) {
-              Remove-Item $backupPath -Recurse -Force
-              Write-Host "🗑️ Old backup removed."
-            }
-
+            Write-Host "📦 Backing up current build..."
+            if (Test-Path $backupPath) { Remove-Item $backupPath -Recurse -Force }
             New-Item -ItemType Directory -Path $backupPath | Out-Null
             if (Test-Path ".next") { Copy-Item ".next" -Destination $backupPath -Recurse }
             if (Test-Path "package.json") { Copy-Item "package.json" -Destination $backupPath }
             if (Test-Path "public") { Copy-Item "public" -Destination $backupPath -Recurse }
-            Write-Host "✅ Backup created at $backupPath."
 
-            Set-Location $deployPath
             Write-Host "📂 Extracting new build..."
             try {
               if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
@@ -564,27 +569,20 @@ jobs:
               $pm2Path = 'C:\Users\Administrator\AppData\Roaming\npm'
               [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$pm2Path", [System.EnvironmentVariableTarget]::Process)
               $env:Path += ";$pm2Path"
-              if (!(Test-Path "$pm2Path\pm2.ps1")) {
-                npm install pm2 -g
-                Write-Host "✅ PM2 installed globally."
-              }
+              if (!(Test-Path "$pm2Path\pm2.ps1")) { npm install pm2 -g }
 
-              Write-Host "🔄 Restarting app with PM2..."
+              Write-Host "🔄 Restarting app..."
               pm2 restart next-app -f -s 2>$null
               Start-Sleep -Seconds 8
               $status = (pm2 info next-app | Out-String)
               if ($status -match "online") {
-                Write-Host "✅ New build started successfully!"
+                Write-Host "✅ New build is running fine!"
               } else {
-                throw "❌ New build failed to start — reverting..."
+                throw "❌ New build failed to start."
               }
 
-              # Success → keep only latest backup
-              Write-Host "🧹 Cleaning up old backups (only one kept)..."
-              Get-ChildItem -Path $deployPath -Directory | Where-Object { $_.Name -match "^backup_" -and $_.Name -ne "backup_latest" } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-
             } catch {
-              Write-Host "⚠️ Deployment failed — restoring from backup..."
+              Write-Host "⚠️ Deployment failed — restoring backup..."
               if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
               if (Test-Path "package.json") { Remove-Item package.json -Force }
               if (Test-Path "public") { Remove-Item public -Recurse -Force }
@@ -595,11 +593,9 @@ jobs:
 
             pm2 save | Out-Null
             pm2 list | Out-String | Out-File "$deployPath\pm2-status.txt" -Encoding utf8
-            $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-            Add-Content "$deployPath\deploy-log.txt" "Deployed successfully at $timestamp"
-            Write-Host "🚀 Deployment process completed."
+            Add-Content "$deployPath\deploy-log.txt" "Deployed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+            Write-Host "✅ Deployment finished."
           }
 
-          Write-Host "✅ Deployment finished cleanly on $env:SERVER_HOST."
           Remove-PSSession $session
-          exit 0
+          Write-Host "✅ Done with $env:SERVER_HOST."
