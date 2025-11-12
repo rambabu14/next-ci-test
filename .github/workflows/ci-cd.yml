@@ -477,12 +477,29 @@ jobs:
         run: npm run build
         shell: powershell
 
-      - name: 🗜️ Create build archive (includes /public)
+      - name: 🗜️ Create build archive (safe with optional files)
         run: |
-          Write-Host "🗜️ Creating build archive with /public..."
+          Write-Host "🗜️ Creating build archive safely..."
           if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
-          tar -czf next-build.tar.gz .next package.json public next.config.js
-          Write-Host "✅ Build archived successfully with /public."
+
+          # Check mandatory items
+          if (-not (Test-Path ".next")) {
+            Write-Host "❌ Error: .next folder not found. Build may have failed."
+            exit 1
+          }
+          if (-not (Test-Path "package.json")) {
+            Write-Host "❌ Error: package.json missing!"
+            exit 1
+          }
+
+          # Optional items (include only if they exist)
+          $tarItems = @(".next", "package.json")
+          if (Test-Path "public") { $tarItems += "public" }
+          if (Test-Path "next.config.js") { $tarItems += "next.config.js" }
+
+          Write-Host "🧩 Archiving items: $($tarItems -join ', ')"
+          tar -czf next-build.tar.gz @tarItems
+          Write-Host "✅ Build archive created successfully."
         shell: powershell
 
       # ---------------- CD ----------------
