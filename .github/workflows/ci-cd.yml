@@ -433,7 +433,7 @@
 #           Remove-PSSession $session
 #           exit 0
 
-name: CI/CD - Next.js Build & Windows Deploy (Multi-Server Reliable)
+name: CI/CD - Next.js Build & Windows Deploy (Multi-Server Stable)
 
 on:
   push:
@@ -446,17 +446,14 @@ jobs:
   build-and-deploy:
     runs-on: windows-latest
 
+    # Matrix defines server labels, not secrets
     strategy:
       matrix:
         include:
           - name: server1
-            host: ${{ secrets.SERVER1_HOST }}
-            user: ${{ secrets.SERVER1_USER }}
-            pass: ${{ secrets.SERVER1_PASS }}
+            label: SERVER1
           - name: server2
-            host: ${{ secrets.SERVER2_HOST }}
-            user: ${{ secrets.SERVER2_USER }}
-            pass: ${{ secrets.SERVER2_PASS }}
+            label: SERVER2
 
     name: Deploy to ${{ matrix.name }}
 
@@ -480,6 +477,7 @@ jobs:
 
       - name: 🗜️ Create build archive
         run: |
+          Write-Host "🗜️ Creating build archive..."
           if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
           tar -czf next-build.tar.gz .next package.json public next.config.js
           Write-Host "✅ Build archived successfully."
@@ -489,44 +487,61 @@ jobs:
       - name: 🚀 Deploy via WinRM HTTP (Port 5985)
         shell: pwsh
         env:
-          SERVER_HOST: ${{ matrix.host }}
-          SERVER_USER: ${{ matrix.user }}
-          SERVER_PASS: ${{ matrix.pass }}
+          SERVER1_HOST: ${{ secrets.SERVER1_HOST }}
+          SERVER1_USER: ${{ secrets.SERVER1_USER }}
+          SERVER1_PASS: ${{ secrets.SERVER1_PASS }}
+          SERVER2_HOST: ${{ secrets.SERVER2_HOST }}
+          SERVER2_USER: ${{ secrets.SERVER2_USER }}
+          SERVER2_PASS: ${{ secrets.SERVER2_PASS }}
         run: |
-          Write-Host "🔧 Configuring WinRM client on GitHub runner..."
+          # Dynamically select server credentials
+          switch ("${{ matrix.label }}") {
+            "SERVER1" {
+              $env:SERVER_HOST = $env:SERVER1_HOST
+              $env:SERVER_USER = $env:SERVER1_USER
+              $env:SERVER_PASS = $env:SERVER1_PASS
+            }
+            "SERVER2" {
+              $env:SERVER_HOST = $env:SERVER2_HOST
+              $env:SERVER_USER = $env:SERVER2_USER
+              $env:SERVER_PASS = $env:SERVER2_PASS
+            }
+          }
+
+          Write-Host "🔧 Configuring WinRM client..."
           try {
             winrm set winrm/config/client/auth '@{Basic="true"}'
             winrm set winrm/config/client '@{TrustedHosts="*"}'
             winrm set winrm/config/client '@{AllowUnencrypted="true"}'
             Write-Host "✅ WinRM client configured."
           } catch {
-            Write-Host "❌ Failed configuring WinRM client:"; Write-Host $_.Exception.Message; exit 1
+            Write-Host "❌ WinRM configuration failed: $($_.Exception.Message)"
+            exit 1
           }
 
-          Write-Host "🔗 Connecting to $env:SERVER_HOST on Port 5985..."
+          Write-Host "🔗 Connecting to $env:SERVER_HOST on port 5985..."
           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
-          $creds   = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
+          $creds = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
 
           $session = $null
-          $maxAttempts = 5
-          for ($i = 1; $i -le $maxAttempts; $i++) {
+          for ($i = 1; $i -le 5; $i++) {
             try {
-              Write-Host "🧠 Attempt ${i}: Trying to create PSSession..."
+              Write-Host "🧠 Attempt $i: Creating PSSession..."
               $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
                 -Credential $creds -Authentication Basic -UseSSL:$false -ErrorAction Stop
-              Write-Host "✅ Connected successfully on attempt ${i}"
+              Write-Host "✅ Connected successfully."
               break
             } catch {
-              Write-Host "⚠️ Attempt ${i} failed: $($_.Exception.Message)"
+              Write-Host "⚠️ Connection failed ($i): $($_.Exception.Message)"
               Start-Sleep -Seconds 5
-              if ($i -eq $maxAttempts) { throw "❌ Failed to connect after ${maxAttempts} attempts." }
+              if ($i -eq 5) { throw "❌ Failed after 5 attempts." }
             }
           }
 
-          # Ensure deploy folder exists before upload
+          # Ensure deploy directory exists
           Invoke-Command -Session $session -ScriptBlock {
             if (!(Test-Path "C:\inetpub\wwwroot\next-app")) {
-              Write-Host "📁 Creating deploy directory..."
+              Write-Host "📁 Creating deploy folder..."
               New-Item -ItemType Directory -Path "C:\inetpub\wwwroot\next-app" | Out-Null
             }
           }
@@ -541,17 +556,17 @@ jobs:
             $deployPath = "C:\inetpub\wwwroot\next-app"
             Set-Location $deployPath
 
-            Write-Host "📂 Extracting build..."
+            Write-Host "📂 Extracting new build..."
             if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
             if (Test-Path "package.json") { Remove-Item package.json -Force }
             if (Test-Path "public") { Remove-Item public -Recurse -Force }
             tar -xzf next-build.tar.gz
             Remove-Item next-build.tar.gz -Force
 
-            Write-Host "⚙️ Installing dependencies (keep-alive active)..."
+            Write-Host "⚙️ Installing dependencies (keep-alive enabled)..."
             $job = Start-Job -ScriptBlock {
               while ($true) {
-                Write-Host "💤 npm install running... $(Get-Date -Format 'HH:mm:ss')"
+                Write-Host "💤 npm install still running... $(Get-Date -Format 'HH:mm:ss')"
                 Start-Sleep -Seconds 60
               }
             }
@@ -576,7 +591,7 @@ jobs:
               pm2 delete next-app -s 2>$null | Out-Null
               pm2 start npm --name "next-app" -- run start --no-warnings | Out-Null
               pm2 save | Out-Null
-              Write-Host "✅ PM2 app restarted successfully."
+              Write-Host "✅ PM2 restarted successfully."
             } catch {
               Write-Host "⚠️ PM2 error:"; Write-Host $_.Exception.Message
             }
