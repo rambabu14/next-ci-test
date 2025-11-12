@@ -484,7 +484,7 @@ jobs:
           if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
 
           if (-not (Test-Path ".next")) {
-            Write-Host "❌ Error: .next folder not found. Build may have failed."
+            Write-Host "❌ Error: .next folder not found. Build may have failed ."
             exit 1
           }
           if (-not (Test-Path "package.json")) {
