@@ -547,7 +547,7 @@ jobs:
           $session = $null
           for ($i = 1; $i -le 5; $i++) {
             try {
-              Write-Host "🧠 Attempt $i: Creating PSSession..."
+              Write-Host "🧠 Attempt ${i}: Creating PSSession..."
               $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
                 -Credential $creds -Authentication Basic -UseSSL:$false -ErrorAction Stop
               Write-Host "✅ Connected successfully."
@@ -584,19 +584,26 @@ jobs:
             tar -xzf next-build.tar.gz
             Remove-Item next-build.tar.gz -Force
 
-            Write-Host "⚙️ Installing dependencies (keep-alive enabled)..."
-            $job = Start-Job -ScriptBlock {
-              while ($true) {
-                Write-Host "💤 npm install still running... $(Get-Date -Format 'HH:mm:ss')"
-                Start-Sleep -Seconds 60
-              }
-            }
-            try {
-              npm install --omit=dev
-            } finally {
-              Stop-Job $job -Force | Out-Null
-              Remove-Job $job -Force | Out-Null
-            }
+            Write-Host "⚙️ Installing dependencies (this may take a few minutes)..."
+
+             # 🛠️ Keep-alive job so GitHub doesn’t cancel the action
+            $keepAlive = Start-Job -ScriptBlock {
+            while ($true) {
+             Write-Host "💤 npm install still running... $(Get-Date -Format 'HH:mm:ss')"
+             Start-Sleep -Seconds 60
+             }
+             }
+
+             try {
+             npm install --omit=dev
+             }
+            finally {
+                 Stop-Job $keepAlive -Force | Out-Null
+                 Remove-Job $keepAlive -Force | Out-Null
+                }
+
+               Write-Host "✅ Dependencies installed successfully."
+
 
             Write-Host "🛠️ Ensuring PM2 is available..."
             $pm2Path = 'C:\Users\Administrator\AppData\Roaming\npm'
