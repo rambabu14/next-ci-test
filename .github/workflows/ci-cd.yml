@@ -475,13 +475,34 @@ jobs:
         run: npm run build
         shell: powershell
 
-      - name: 🗜️ Create build archive
+      - name: 🗜️ Create build archive (safe with optional files)
+        shell: pwsh
         run: |
-          Write-Host "🗜️ Creating build archive..."
-          if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
-          tar -czf next-build.tar.gz .next package.json public next.config.js
-          Write-Host "✅ Build archived successfully."
-        shell: powershell
+             Write-Host "🗜️ Creating build archive safely..."
+             if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
+
+             # Check mandatory items
+               if (-not (Test-Path ".next")) { Write-Host "❌ .next folder missing!"; exit 1 }
+               if (-not (Test-Path "package.json")) { Write-Host "❌ package.json missing!"; exit 1 }
+
+             # Collect items
+                $tarItems = @(".next", "package.json")
+                 if (Test-Path "public") { $tarItems += "public" }
+                  if (Test-Path "next.config.js") { $tarItems += "next.config.js" }
+       
+                Write-Host "📦 Archiving: $($tarItems -join ', ')"
+
+                # Use Join-String to safely build argument list
+                    $tarArgs = $tarItems -join ' '
+                    cmd /c "tar -czf next-build.tar.gz $tarArgs"
+
+              if ($LASTEXITCODE -eq 0) {
+                Write-Host "✅ Build archive created successfully."
+              } else {
+               Write-Host "⚠️ tar returned non-zero exit code ($LASTEXITCODE)."
+              exit 1
+                }
+          
 
       # ------------------ CD: DEPLOY ------------------
       - name: 🚀 Deploy via WinRM HTTP (Port 5985)
