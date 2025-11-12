@@ -151,7 +151,291 @@
 #           Remove-PSSession $session
 
 
-name: CI/CD - Next.js Build & Windows Deploy (HTTP)
+# name: CI/CD - Next.js Build & Windows Deploy (HTTP)
+
+# on:
+#   push:
+#     branches: ["main"]
+#   workflow_dispatch:
+#   schedule:
+#     - cron: "31 18 * * *" # 12:01 AM IST (18:31 UTC)
+
+# jobs:
+#   build-and-deploy:
+#     runs-on: windows-latest
+
+#     steps:
+#       - name: 🛒 Checkout repository
+#         uses: actions/checkout@v4
+
+#       - name: ⚙️ Set up Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: 20
+
+#       - name: 📦 Install dependencies
+#         run: npm ci
+#         shell: powershell
+
+#       - name: 🏗️ Build Next.js app
+#         run: npm run build
+#         shell: powershell
+
+#       - name: 🗜️ Create build archive
+#         run: |
+#           if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
+#           tar -czf next-build.tar.gz .next package.json
+#           Write-Host "✅ Build archived successfully."
+#         shell: powershell
+
+#       # ------------------ DEPLOY ------------------
+#       - name: 🚀 Deploy via WinRM HTTP (Port 5985)
+#         shell: pwsh
+#         env:
+#           SERVER_HOST: ${{ secrets.SERVER_HOST }}
+#           SERVER_USER: ${{ secrets.SERVER_USER }}
+#           SERVER_PASS: ${{ secrets.SERVER_PASS }}
+#         run: |
+#           Write-Host "🔧 Configuring WinRM client on GitHub runner..."
+#           try {
+#             winrm set winrm/config/client/auth '@{Basic="true"}'
+#             winrm set winrm/config/client '@{TrustedHosts="*"}'
+#             winrm set winrm/config/client '@{AllowUnencrypted="true"}'
+#             Write-Host "✅ WinRM client configured."
+#           } catch {
+#             Write-Host "❌ Failed configuring WinRM client:"
+#             Write-Host $_.Exception.Message
+#             exit 1
+#           }
+
+#           Write-Host "🔗 Connecting to $env:SERVER_HOST on Port 5985..."
+#           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
+#           $creds = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
+
+#           $session = $null
+#           $maxAttempts = 5
+#           for ($i = 1; $i -le $maxAttempts; $i++) {
+#             try {
+#               Write-Host "🧠 Attempt ${i}: Trying to create PSSession..."
+#               $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
+#                 -Credential $creds -Authentication Basic -UseSSL:$false -ErrorAction Stop
+#               Write-Host "✅ Connected successfully on attempt ${i}"
+#               break
+#             } catch {
+#               Write-Host "⚠️ Attempt ${i} failed. Retrying..."
+#               Start-Sleep -Seconds 5
+#               if ($i -eq $maxAttempts) { throw "❌ Failed to connect after ${maxAttempts} attempts." }
+#             }
+#           }
+
+#           Write-Host "📦 Uploading build..."
+#           Copy-Item -ToSession $session -Path "next-build.tar.gz" `
+#             -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
+#           Write-Host "✅ Build uploaded successfully."
+
+#           Write-Host "🧩 Running remote deployment..."
+#           Invoke-Command -Session $session -ScriptBlock {
+#             $deployPath = "C:\inetpub\wwwroot\next-app"
+#             Write-Host "🔧 Preparing deploy folder..."
+#             if (!(Test-Path $deployPath)) { New-Item -ItemType Directory -Path $deployPath | Out-Null }
+#             Set-Location $deployPath
+
+#             Write-Host "📂 Extracting build..."
+#             if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
+#             if (Test-Path "package.json") { Remove-Item package.json -Force }
+#             tar -xzf next-build.tar.gz
+#             Remove-Item next-build.tar.gz -Force
+
+#             Write-Host "⚙️ Installing dependencies..."
+#             npm install --omit=dev
+
+#             Write-Host "🛠️ Ensuring PM2 is available..."
+#             $pm2Path = 'C:\Users\Administrator\AppData\Roaming\npm'
+#             if (!(Test-Path "$pm2Path\pm2.ps1")) {
+#               npm install pm2 -g
+#               Write-Host "✅ PM2 installed globally."
+#             }
+
+#             # Add PM2 to path for this session
+#             [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$pm2Path", [System.EnvironmentVariableTarget]::Process)
+#             $env:Path += ";$pm2Path"
+#             Write-Host "✅ PM2 path added: $pm2Path"
+
+#             Write-Host "🔄 Restarting or starting app with PM2..."
+#             try {
+#               pm2 delete next-app -s 2>$null | Out-Null
+#               $rawOutput = pm2 start npm --name "next-app" -- run start --no-warnings | Out-String
+#               $cleanOutput = $rawOutput -replace '[^\x20-\x7E]', ''  # strip non-ASCII characters
+#               Write-Host $cleanOutput
+#               pm2 save | Out-Null
+#               Write-Host "✅ PM2 app started and saved successfully."
+#             } catch {
+#               Write-Host "⚠️ PM2 error:"
+#               Write-Host $_.Exception.Message
+#             }
+
+#             pm2 list | Out-String | Out-File "$deployPath\pm2-status.txt" -Encoding utf8
+#             Write-Host "📄 PM2 status saved to pm2-status.txt"
+
+#             $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+#             Add-Content "$deployPath\deploy-log.txt" "Deployed successfully at $timestamp"
+#             Write-Host "🚀 Deployment completed and logged successfully."
+#           } -ErrorAction SilentlyContinue
+
+#           Write-Host "✅ Deployment finished cleanly on remote server."
+#           Remove-PSSession $session
+#           exit 0
+
+
+
+# name: CI/CD - Next.js Build & Windows Deploy (HTTP, Multi-Server)
+
+# on:
+#   push:
+#     branches: ["main"]
+#   workflow_dispatch:
+#   schedule:
+#     - cron: "31 18 * * *" # 12:01 AM IST (18:31 UTC)
+
+# jobs:
+#   build-and-deploy:
+#     runs-on: windows-latest
+
+#     # 👇 Matrix defines multiple servers
+#     strategy:
+#       matrix:
+#         include:
+#           - name: server1
+#             host: ${{ secrets.SERVER1_HOST }}
+#             user: ${{ secrets.SERVER1_USER }}
+#             pass: ${{ secrets.SERVER1_PASS }}
+#           - name: server2
+#             host: ${{ secrets.SERVER2_HOST }}
+#             user: ${{ secrets.SERVER2_USER }}
+#             pass: ${{ secrets.SERVER2_PASS }}
+
+#     name: Deploy to ${{ matrix.name }}
+
+#     steps:
+#       # ------------------ CI: BUILD ------------------
+#       - name: 🛒 Checkout repository
+#         uses: actions/checkout@v4
+
+#       - name: ⚙️ Set up Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: 20
+
+#       - name: 📦 Install dependencies
+#         run: npm ci
+#         shell: powershell
+
+#       - name: 🏗️ Build Next.js app
+#         run: npm run build
+#         shell: powershell
+
+#       - name: 🗜️ Create build archive
+#         run: |
+#           if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
+#           tar -czf next-build.tar.gz .next package.json
+#           Write-Host "✅ Build archived successfully."
+#         shell: powershell
+
+#       # ------------------ CD: DEPLOY ------------------
+#       - name: 🚀 Deploy to ${{ matrix.name }} via WinRM HTTP
+#         shell: pwsh
+#         env:
+#           SERVER_HOST: ${{ matrix.host }}
+#           SERVER_USER: ${{ matrix.user }}
+#           SERVER_PASS: ${{ matrix.pass }}
+#         run: |
+#           Write-Host "🔧 Configuring WinRM client..."
+#           try {
+#             winrm set winrm/config/client/auth '@{Basic="true"}'
+#             winrm set winrm/config/client '@{TrustedHosts="*"}'
+#             winrm set winrm/config/client '@{AllowUnencrypted="true"}'
+#             Write-Host "✅ WinRM client configured."
+#           } catch {
+#             Write-Host "❌ Failed configuring WinRM client:"; Write-Host $_.Exception.Message; exit 1
+#           }
+
+#           Write-Host "🔗 Connecting to $env:SERVER_HOST ..."
+#           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
+#           $creds = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
+
+#           $session = $null
+#           $maxAttempts = 5
+#           for ($i = 1; $i -le $maxAttempts; $i++) {
+#             try {
+#               Write-Host "🧠 Attempt ${i}: Trying to create PSSession..."
+#               $session = New-PSSession -ComputerName $env:SERVER_HOST -Port 5985 `
+#                 -Credential $creds -Authentication Basic -UseSSL:$false -ErrorAction Stop
+#               Write-Host "✅ Connected successfully on attempt ${i}"
+#               break
+#             } catch {
+#               Write-Host "⚠️ Attempt ${i} failed: $($_.Exception.Message)"
+#               Start-Sleep -Seconds 5
+#               if ($i -eq $maxAttempts) { throw "❌ Failed after ${maxAttempts} attempts." }
+#             }
+#           }
+
+#           Write-Host "📦 Uploading build to $env:SERVER_HOST..."
+#           Copy-Item -ToSession $session -Path "next-build.tar.gz" `
+#             -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
+
+#           Write-Host "🧩 Running remote deployment on $env:SERVER_HOST..."
+#           Invoke-Command -Session $session -ScriptBlock {
+#             $deployPath = "C:\inetpub\wwwroot\next-app"
+#             Write-Host "🔧 Preparing deploy folder..."
+#             if (!(Test-Path $deployPath)) { New-Item -ItemType Directory -Path $deployPath | Out-Null }
+#             Set-Location $deployPath
+
+#             Write-Host "📂 Extracting build..."
+#             if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
+#             if (Test-Path "package.json") { Remove-Item package.json -Force }
+#             tar -xzf next-build.tar.gz
+#             Remove-Item next-build.tar.gz -Force
+
+#             Write-Host "⚙️ Installing dependencies..."
+#             npm install --omit=dev
+
+#             Write-Host "🛠️ Ensuring PM2 is available..."
+#             $pm2Path = 'C:\Users\Administrator\AppData\Roaming\npm'
+#             if (!(Test-Path "$pm2Path\pm2.ps1")) {
+#               npm install pm2 -g
+#               Write-Host "✅ PM2 installed globally."
+#             }
+
+#             # Add PM2 to path for this session
+#             [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$pm2Path", [System.EnvironmentVariableTarget]::Process)
+#             $env:Path += ";$pm2Path"
+#             Write-Host "✅ PM2 path added: $pm2Path"
+
+#             Write-Host "🔄 Restarting or starting app with PM2..."
+#             try {
+#               pm2 delete next-app -s 2>$null | Out-Null
+#               $rawOutput = pm2 start npm --name "next-app" -- run start --no-warnings | Out-String
+#               $cleanOutput = $rawOutput -replace '[^\x20-\x7E]', ''
+#               Write-Host $cleanOutput
+#               pm2 save | Out-Null
+#               Write-Host "✅ PM2 app started and saved successfully."
+#             } catch {
+#               Write-Host "⚠️ PM2 error: $($_.Exception.Message)"
+#             }
+
+#             pm2 list | Out-String | Out-File "$deployPath\pm2-status.txt" -Encoding utf8
+#             $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+#             Add-Content "$deployPath\deploy-log.txt" "Deployed successfully at $timestamp"
+#             Write-Host "🚀 Deployment completed and logged successfully."
+#           } -ErrorAction SilentlyContinue
+
+#           Write-Host "✅ Deployment finished cleanly on $env:SERVER_HOST."
+#           Remove-PSSession $session
+#           exit 0
+
+
+
+name: CI/CD - Next.js Build & Windows Deploy (HTTP, Multi-Server Safe Same-Folder + 1-Day Backup)
 
 on:
   push:
@@ -164,7 +448,22 @@ jobs:
   build-and-deploy:
     runs-on: windows-latest
 
+    strategy:
+      matrix:
+        include:
+          - name: server1
+            host: ${{ secrets.SERVER1_HOST }}
+            user: ${{ secrets.SERVER1_USER }}
+            pass: ${{ secrets.SERVER1_PASS }}
+          - name: server2
+            host: ${{ secrets.SERVER2_HOST }}
+            user: ${{ secrets.SERVER2_USER }}
+            pass: ${{ secrets.SERVER2_PASS }}
+
+    name: Deploy to ${{ matrix.name }}
+
     steps:
+      # ------------------ CI: BUILD ------------------
       - name: 🛒 Checkout repository
         uses: actions/checkout@v4
 
@@ -181,34 +480,33 @@ jobs:
         run: npm run build
         shell: powershell
 
-      - name: 🗜️ Create build archive
+      - name: 🗜️ Create build archive (includes /public)
         run: |
+          Write-Host "🗜️ Creating build archive with /public..."
           if (Test-Path "next-build.tar.gz") { Remove-Item next-build.tar.gz -Force }
-          tar -czf next-build.tar.gz .next package.json
-          Write-Host "✅ Build archived successfully."
+          tar -czf next-build.tar.gz .next package.json public next.config.js
+          Write-Host "✅ Build archived successfully with /public."
         shell: powershell
 
-      # ------------------ DEPLOY ------------------
-      - name: 🚀 Deploy via WinRM HTTP (Port 5985)
+      # ------------------ CD: DEPLOY ------------------
+      - name: 🚀 Deploy to ${{ matrix.name }} via WinRM HTTP
         shell: pwsh
         env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          SERVER_PASS: ${{ secrets.SERVER_PASS }}
+          SERVER_HOST: ${{ matrix.host }}
+          SERVER_USER: ${{ matrix.user }}
+          SERVER_PASS: ${{ matrix.pass }}
         run: |
-          Write-Host "🔧 Configuring WinRM client on GitHub runner..."
+          Write-Host "🔧 Configuring WinRM client..."
           try {
             winrm set winrm/config/client/auth '@{Basic="true"}'
             winrm set winrm/config/client '@{TrustedHosts="*"}'
             winrm set winrm/config/client '@{AllowUnencrypted="true"}'
             Write-Host "✅ WinRM client configured."
           } catch {
-            Write-Host "❌ Failed configuring WinRM client:"
-            Write-Host $_.Exception.Message
-            exit 1
+            Write-Host "❌ Failed configuring WinRM client:"; Write-Host $_.Exception.Message; exit 1
           }
 
-          Write-Host "🔗 Connecting to $env:SERVER_HOST on Port 5985..."
+          Write-Host "🔗 Connecting to $env:SERVER_HOST ..."
           $secpass = ConvertTo-SecureString $env:SERVER_PASS -AsPlainText -Force
           $creds = New-Object System.Management.Automation.PSCredential ($env:SERVER_USER, $secpass)
 
@@ -222,66 +520,86 @@ jobs:
               Write-Host "✅ Connected successfully on attempt ${i}"
               break
             } catch {
-              Write-Host "⚠️ Attempt ${i} failed. Retrying..."
+              Write-Host "⚠️ Attempt ${i} failed: $($_.Exception.Message)"
               Start-Sleep -Seconds 5
-              if ($i -eq $maxAttempts) { throw "❌ Failed to connect after ${maxAttempts} attempts." }
+              if ($i -eq $maxAttempts) { throw "❌ Failed after ${maxAttempts} attempts." }
             }
           }
 
-          Write-Host "📦 Uploading build..."
+          Write-Host "📦 Uploading build to $env:SERVER_HOST..."
           Copy-Item -ToSession $session -Path "next-build.tar.gz" `
             -Destination "C:\inetpub\wwwroot\next-app\next-build.tar.gz" -Force
-          Write-Host "✅ Build uploaded successfully."
 
-          Write-Host "🧩 Running remote deployment..."
+          Write-Host "🧩 Running remote deployment on $env:SERVER_HOST..."
           Invoke-Command -Session $session -ScriptBlock {
             $deployPath = "C:\inetpub\wwwroot\next-app"
-            Write-Host "🔧 Preparing deploy folder..."
-            if (!(Test-Path $deployPath)) { New-Item -ItemType Directory -Path $deployPath | Out-Null }
+            $backupPath = "$deployPath\backup_latest"
+
+            Write-Host "📦 Creating fresh backup of current build..."
+            if (Test-Path $backupPath) {
+              Remove-Item $backupPath -Recurse -Force
+              Write-Host "🗑️ Old backup removed."
+            }
+
+            New-Item -ItemType Directory -Path $backupPath | Out-Null
+            if (Test-Path ".next") { Copy-Item ".next" -Destination $backupPath -Recurse }
+            if (Test-Path "package.json") { Copy-Item "package.json" -Destination $backupPath }
+            if (Test-Path "public") { Copy-Item "public" -Destination $backupPath -Recurse }
+            Write-Host "✅ Backup created at $backupPath."
+
             Set-Location $deployPath
-
-            Write-Host "📂 Extracting build..."
-            if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
-            if (Test-Path "package.json") { Remove-Item package.json -Force }
-            tar -xzf next-build.tar.gz
-            Remove-Item next-build.tar.gz -Force
-
-            Write-Host "⚙️ Installing dependencies..."
-            npm install --omit=dev
-
-            Write-Host "🛠️ Ensuring PM2 is available..."
-            $pm2Path = 'C:\Users\Administrator\AppData\Roaming\npm'
-            if (!(Test-Path "$pm2Path\pm2.ps1")) {
-              npm install pm2 -g
-              Write-Host "✅ PM2 installed globally."
-            }
-
-            # Add PM2 to path for this session
-            [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$pm2Path", [System.EnvironmentVariableTarget]::Process)
-            $env:Path += ";$pm2Path"
-            Write-Host "✅ PM2 path added: $pm2Path"
-
-            Write-Host "🔄 Restarting or starting app with PM2..."
+            Write-Host "📂 Extracting new build..."
             try {
-              pm2 delete next-app -s 2>$null | Out-Null
-              $rawOutput = pm2 start npm --name "next-app" -- run start --no-warnings | Out-String
-              $cleanOutput = $rawOutput -replace '[^\x20-\x7E]', ''  # strip non-ASCII characters
-              Write-Host $cleanOutput
-              pm2 save | Out-Null
-              Write-Host "✅ PM2 app started and saved successfully."
+              if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
+              if (Test-Path "package.json") { Remove-Item package.json -Force }
+              if (Test-Path "public") { Remove-Item public -Recurse -Force }
+
+              tar -xzf next-build.tar.gz
+              Remove-Item next-build.tar.gz -Force
+
+              Write-Host "⚙️ Installing dependencies..."
+              npm install --omit=dev
+
+              # PM2 setup
+              $pm2Path = 'C:\Users\Administrator\AppData\Roaming\npm'
+              [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$pm2Path", [System.EnvironmentVariableTarget]::Process)
+              $env:Path += ";$pm2Path"
+              if (!(Test-Path "$pm2Path\pm2.ps1")) {
+                npm install pm2 -g
+                Write-Host "✅ PM2 installed globally."
+              }
+
+              Write-Host "🔄 Restarting app with PM2..."
+              pm2 restart next-app -f -s 2>$null
+              Start-Sleep -Seconds 8
+              $status = (pm2 info next-app | Out-String)
+              if ($status -match "online") {
+                Write-Host "✅ New build started successfully!"
+              } else {
+                throw "❌ New build failed to start — reverting..."
+              }
+
+              # Success → keep only latest backup
+              Write-Host "🧹 Cleaning up old backups (only one kept)..."
+              Get-ChildItem -Path $deployPath -Directory | Where-Object { $_.Name -match "^backup_" -and $_.Name -ne "backup_latest" } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
             } catch {
-              Write-Host "⚠️ PM2 error:"
-              Write-Host $_.Exception.Message
+              Write-Host "⚠️ Deployment failed — restoring from backup..."
+              if (Test-Path ".next") { Remove-Item .next -Recurse -Force }
+              if (Test-Path "package.json") { Remove-Item package.json -Force }
+              if (Test-Path "public") { Remove-Item public -Recurse -Force }
+              Copy-Item "$backupPath\*" -Destination $deployPath -Recurse -Force
+              pm2 restart next-app -f -s 2>$null
+              Write-Host "♻️ Reverted to previous working version."
             }
 
+            pm2 save | Out-Null
             pm2 list | Out-String | Out-File "$deployPath\pm2-status.txt" -Encoding utf8
-            Write-Host "📄 PM2 status saved to pm2-status.txt"
-
             $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             Add-Content "$deployPath\deploy-log.txt" "Deployed successfully at $timestamp"
-            Write-Host "🚀 Deployment completed and logged successfully."
-          } -ErrorAction SilentlyContinue
+            Write-Host "🚀 Deployment process completed."
+          }
 
-          Write-Host "✅ Deployment finished cleanly on remote server."
+          Write-Host "✅ Deployment finished cleanly on $env:SERVER_HOST."
           Remove-PSSession $session
           exit 0

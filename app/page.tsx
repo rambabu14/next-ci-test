@@ -6,6 +6,7 @@ export default function HomePage() {
         This is the Home page. Once CI/CD is configured, every push to main will
         automatically build and deploy this app!
       </p>
+      <div><img src="/logo.png" alt="image" /></div>
     </div>
   );
 }
